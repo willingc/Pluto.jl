@@ -172,7 +172,6 @@ const mutators = Dict(
     "in_temp_dir" => function(; _...) nothing end,
     "cell_dict" => Dict(
         Wildcard() => function(cell_id, rest; request::NotebookRequest, patch::Firebase.JSONPatch)
-            cell = request.notebook.cell_dict[UUID(cell_id)]
             Firebase.update!(request.notebook, patch)
             @info "Updating cell" patch
 
@@ -195,7 +194,13 @@ const mutators = Dict(
         Wildcard() => function(name; request::NotebookRequest, patch::Firebase.JSONPatch)
             # @assert patch isa Firebase.ReplacePatch || patch isa Firebase.AddPatch
             name = Symbol(name)
-            # request.notebook.bonds[name] = patch.value
+            if patch isa Firebase.ReplacePatch
+                @info "request.notebook.bonds[name]" request.notebook.bonds[name]
+                if request.notebook.bonds[name] == patch.value
+                    return
+                end
+            end
+            
             Firebase.update!(request.notebook, patch)
             @info "Bond" name patch.value
             refresh_bond(session=request.session, notebook=request.notebook, name=name)
@@ -264,9 +269,9 @@ end
 function refresh_bond(; session::ServerSession, notebook::Notebook, name::Symbol)
     bound_sym = name
 
-    variable_exists = is_assigned_anywhere(notebook, notebook.topology, bound_sym)
-    if variable_exists
-        any_dependents = is_referenced_anywhere(notebook, notebook.topology, bound_sym)
+    # variable_exists = is_assigned_anywhere(notebook, notebook.topology, bound_sym)
+    # if variable_exists
+        # any_dependents = is_referenced_anywhere(notebook, notebook.topology, bound_sym)
         
         # Assume `body["is_first_value"] == false` if you want to skip an edge case in this code
         # cancel_run_early = if body["is_first_value"]
@@ -286,17 +291,26 @@ function refresh_bond(; session::ServerSession, notebook::Notebook, name::Symbol
         # putnotebookupdates!(session, notebook, UpdateMessage(:bond_update, reponse, notebook, nothing, initiator))
         
         # if !cancel_run_early
-            function custom_deletion_hook((session, notebook)::Tuple{ServerSession,Notebook}, to_delete_vars::Set{Symbol}, funcs_to_delete::Set{Tuple{UUID,FunctionName}}, to_reimport::Set{Expr}; to_run::Array{Cell,1})
-                push!(to_delete_vars, bound_sym) # also delete the bound symbol
-                WorkspaceManager.delete_vars((session, notebook), to_delete_vars, funcs_to_delete, to_reimport)
-                WorkspaceManager.eval_in_workspace((session, notebook), :($(bound_sym) = $(notebook.bonds[bound_sym])))
-            end
-            to_reeval = where_referenced(notebook, notebook.topology, Set{Symbol}([bound_sym]))
+            # function custom_deletion_hook((session, notebook)::Tuple{ServerSession,Notebook}, to_delete_vars::Set{Symbol}, funcs_to_delete::Set{Tuple{UUID,FunctionName}}, to_reimport::Set{Expr}; to_run::Array{Cell,1})
+            #     push!(to_delete_vars, bound_sym) # also delete the bound symbol
+            #     WorkspaceManager.delete_vars((session, notebook), to_delete_vars, funcs_to_delete, to_reimport)
+            #     WorkspaceManager.eval_in_workspace((session, notebook), :($(bound_sym) = $(notebook.bonds[bound_sym])))
+            # end
 
-            update_save_run!(session, notebook, to_reeval; deletion_hook=custom_deletion_hook, run_async=true, save=false, persist_js_state=true)
+            # where_assigned(notebook, notebook.topology, )
+            cell_id_to_trigger = WorkspaceManager.eval_fetch_in_workspace((session, notebook), :(PlutoRunner.bonds[$(QuoteNode(bound_sym))][:cell_id]))
+            WorkspaceManager.eval_in_workspace((session, notebook), :(PlutoRunner.bonds[$(QuoteNode(bound_sym))][:value] = $(notebook.bonds[bound_sym])))
+            @info "cell_id_to_trigger" cell_id_to_trigger
+            # cells_with_this_assigned = filter(notebook.cells) do cell
+            #     bound_sym ∈ notebook.topology[cell].definitions
+            # end
+            # to_reeval = where_referenced(notebook, notebook.topology, Set{Symbol}([bound_sym]))
+            # @info "cells_with_this_assigned" cells_with_this_assigned
+            to_reeval = [notebook.cell_dict[UUID(String(cell_id_to_trigger))]]
+            update_save_run!(session, notebook, to_reeval; run_async=true, save=false, persist_js_state=true)
         # end
-    else
+    # else
         # a bond was set while the cell is in limbo state
         # we don't need to do anything
-    end
+    # end
 end

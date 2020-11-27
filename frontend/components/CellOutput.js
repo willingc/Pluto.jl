@@ -273,6 +273,7 @@ export let RawHTMLContainer = ({ body, persist_js_state = false }) => {
 
             if (pluto_actions != null) {
                 let remove_bonds_listener = add_bonds_listener(container.current, (name, value, is_first_value) => {
+                    console.log(`name, value:`, name, value)
                     pluto_actions.set_bond(name, value, is_first_value)
                 })
                 invalidation.then(() => {

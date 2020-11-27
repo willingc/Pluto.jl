@@ -79,6 +79,7 @@ const return_error = "Pluto: You can only use return inside a function."
 
 struct Computer
     f::Function
+    # e::Any
     return_proof::ReturnProof
     input_globals::Vector{Symbol}
     output_globals::Vector{Symbol}
@@ -88,6 +89,8 @@ end
 const computers = WeakKeyDict{Expr,Computer}()
 
 const computer_workspace = Main
+
+const macroexpanded = WeakKeyDict{Computer,Any}()
 
 function register_computer(expr::Expr, input_globals::Vector{Symbol}, output_globals::Vector{Symbol})
     proof = ReturnProof()
@@ -101,12 +104,25 @@ function register_computer(expr::Expr, input_globals::Vector{Symbol}, output_glo
         )
     ))
 
-    f = Core.eval(computer_workspace, e)
+    @info "Pre evaluate"
+    # f = Core.eval(computer_workspace, e)
+    f = Core.eval(current_module, e)
+    @info "Post evaluate"
 
     computers[expr] = Computer(f, proof, input_globals, output_globals)
+    # computers[expr] = Computer(e, proof, input_globals, output_globals)
 end
 
+# function get_macroexpanded_from_computer(computer::Computer)
+#     get!(macroexpanded, computer)
+#     f = Core.eval(computer_workspace, e)
+#     @info "Post evaluate"
+
+# end
+
 function compute(computer::Computer)
+    # f = get_macroexpanded_from_computer(computer)
+
     # 1. get the referenced global variables
     # this might error if the global does not exist, which is exactly what we want
     input_global_values = getfield.([current_module], computer.input_globals)
@@ -176,6 +192,14 @@ function run_inside_trycatch(f::Union{Expr,Function}, cell_id::UUID, return_proo
     end
 end
 
+# include("../analysis/ExpressionExplorer.jl")
+# include("../analysis/ReactiveNode.jl")
+
+# function get_function_wrap_stuff(expr)
+#     symbol_state = ExpressionExplorer.compute_symbolreferences(expr)
+#     reactive_node = ReactiveNode(symbol_state)
+#     (filter(!ExpressionExplorer.is_joined_funcname, reactive_node.references), reactive_node.definitions)
+# end
 
 """
 Run the given expression in the current workspace module. If the third argument is `nothing`, then the expression will be `Core.eval`ed. The result and runtime are stored inside [`cell_results`](@ref) and [`cell_runtimes`](@ref).
@@ -185,6 +209,9 @@ If the third argument is a `Tuple{Set{Symbol}, Set{Symbol}}` containing the refe
 This function is memoized: running the same expression a second time will simply call the same generated function again. This is much faster than evaluating the expression, because the function only needs to be Julia-compiled once. See https://github.com/fonsp/Pluto.jl/pull/720
 """
 function run_expression(expr::Any, cell_id::UUID, function_wrapped_info::Union{Nothing,Tuple{Set{Symbol},Set{Symbol}}}=nothing)
+    # function_wrapped_info = ExpressionExplorer.can_be_function_wrapped(expr) ? get_function_wrap_stuff(expr) : nothing
+    @info "function_wrapped_info" expr function_wrapped_info
+
     cell_results[cell_id], cell_runtimes[cell_id] = if function_wrapped_info === nothing
         proof = ReturnProof()
         wrapped = timed_expr(expr, proof)
@@ -193,9 +220,10 @@ function run_expression(expr::Any, cell_id::UUID, function_wrapped_info::Union{N
         local computer = get(computers, expr, nothing)
         if computer === nothing
             try
+                @info "Did computer" expr
                 computer = register_computer(expr, collect.(function_wrapped_info)...)
             catch e
-                # @error "Failed to generate computer function" expr exception=(e,stacktrace(catch_backtrace()))
+                @error "Failed to generate computer function" expr exception=(e,stacktrace(catch_backtrace()))
                 return run_expression(expr, cell_id, nothing)
             end
         end
@@ -205,6 +233,7 @@ function run_expression(expr::Any, cell_id::UUID, function_wrapped_info::Union{N
 
         # This check solves the problem of a cell like `false && variable_that_does_not_exist`. This should run without error, but will fail in our function-wrapping-magic because we get the value of `variable_that_does_not_exist` before calling the generated function.
         # The fix is to detect this situation and run the expression in the classical way.
+        @info "ans" ans
         if (ans isa CapturedException) && (ans.ex isa UndefVarError)
             run_expression(expr, cell_id, nothing)
         else
@@ -1052,15 +1081,35 @@ x^2
 The first cell will show a slider as the cell's output, ranging from 0 until 100.
 The second cell will show the square of `x`, and is updated in real-time as the slider is moved.
 """
-macro bind(def, element)
+macro bind(def, element)	
+	grrrr = String(rand('a':'z', 100))
 	if def isa Symbol
-		quote
-			local el = $(esc(element))
-            global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : missing
-			PlutoRunner.Bond(el, $(Meta.quot(def)))
+        quote
+            local __id = Symbol($(grrrr))
+            local __cell_id = Symbol(split(String(stacktrace()[1].file), "#==#")[2])
+            local el = $(esc(element))
+            local bondthing = get!(bonds, __id, Dict(:cell_id => __cell_id, :value => (Core.applicable(Base.get, el) ? Base.get(el) : missing)))
+            local $(esc(def)) = bondthing[:value]
+            # PlutoRunner.Bond(el, $(Meta.quot(def)))
+			PlutoRunner.Bond(el, Symbol(__id))
 		end
 	else
 		:(throw(ArgumentError("""\nMacro example usage: \n\n\t@bind my_number html"<input type='range'>"\n\n""")))
+	end
+end
+macro bind(expr)
+	def, element = expr.args
+    quote
+        @bind $(def) $(element)
+    end
+end
+
+bonds = Dict{Symbol,Dict{Symbol,Any}}()
+
+macro useRef(expr::Expr)
+	value = eval(expr)
+	quote
+		$(value)
 	end
 end
 

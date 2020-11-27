@@ -932,7 +932,7 @@ function can_be_function_wrapped(x::Expr)
         x.head === :module ||
         x.head === :function ||
         x.head === :macro ||
-        x.head === :macrocall || # we might want to get rid of this one, but that requires some work
+        # x.head === :macrocall || # we might want to get rid of this one, but that requires some work
         x.head === :struct ||
         x.head === :abstract ||
         (x.head === :(=) && x.args[1] isa Expr && x.args[1].head === :call) # f(x) = ...
