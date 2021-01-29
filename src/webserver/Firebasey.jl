@@ -1,8 +1,11 @@
 ### A Pluto.jl notebook ###
-# v0.12.19
+# v0.12.20
 
 using Markdown
 using InteractiveUtils
+
+# ╔═╡ b2f4c4ac-c3ee-4070-ba1e-c5161b961d83
+using UUIDs
 
 # ╔═╡ d948dc6e-2de1-11eb-19e7-cb3bb66353b6
 md"# Diffing"
@@ -31,6 +34,16 @@ dict_1 = Dict{String,Any}(
 	"e" => "hello!"
 );
 
+# ╔═╡ e6710923-63ec-4b57-aa96-f24c50266a71
+nt_1 = (
+	a = 1,
+	b = (
+		c = [3,4],
+		d = 99,
+	),
+	e = "hello!",
+);
+
 # ╔═╡ 19646596-b35b-44fa-bfcf-891f9ffb748c
 dict_2 = Dict{String,Any}(
 	"a" => 1,
@@ -38,6 +51,16 @@ dict_2 = Dict{String,Any}(
 		"c" => [3,4,5],
 		"d" => 99,
 		"🏝" => "👍",
+	),
+);
+
+# ╔═╡ 750b717f-10c7-4b72-affb-2725c68696ad
+nt_2 = (
+	a = 1,
+	b = (
+		c = [3,4,5],
+		d = 99,
+		🏝 = "👍",
 	),
 );
 
@@ -209,50 +232,8 @@ end
 # ╔═╡ daf9ec12-2de1-11eb-3a8d-59d9c2753134
 md"## Diff"
 
-# ╔═╡ 0b50f6b2-8e85-4565-9f04-f99c913b4592
-const use_triple_equals_for_arrays = Ref(false)
-
-# ╔═╡ 59e94cb2-c2f9-4f6c-9562-45e8c15931af
-function diff(old::T, new::T)::Patches where T <: AbstractArray
-	if use_triple_equals_for_arrays[] ? 
-		((old === new) || (old == new)) : 
-		(old == new)
-		NoChanges
-	else
-		[ReplacePatch([], new)]
-	end
-end
-
-# ╔═╡ 5e360fcd-9943-4a17-9672-f1fded2f7e3a
-function diff(old::T, new::T)::Patches where T
-	if old == new
-		NoChanges
-	else
-		[ReplacePatch([], new)]
-	end
-end
-
-# ╔═╡ 9cbaaec2-709c-4769-886c-ec92b12c18bc
-struct Deep{T} value::T end
-
-# ╔═╡ db75df12-2de1-11eb-0726-d1995cebd382
-function diff(old::Deep{T}, new::Deep{T})::Patches where T
-	changes = JSONPatch[]
-	for property in propertynames(old.value)
-		for change in diff(getproperty(old.value, property), getproperty(new.value, property))
-			push!(changes, wrappath([property], change))
-		end
-	end
-	changes
-	
-	# changes = []
-	# for property in fieldnames(T)
-	# 	for change in diff(getfield(old.value, property), getfield(new.value, property))
-	# 		push!(changes, wrappath([property], change))
-	# 	end
-	# end
-	# changes
-end
+# ╔═╡ 3f2affcb-a93e-4eb4-8732-705f02d0ea5d
+# @benchmark diff($example_state, $example_state)
 
 # ╔═╡ dbc7f97a-2de1-11eb-362f-055a734d1a9e
 function diff(o1::AbstractDict, o2::AbstractDict)
@@ -300,8 +281,69 @@ function diff(o1::Nothing, o2::Nothing)
 	NoChanges
 end
 
-# ╔═╡ 7ca087b8-73ac-49ea-9c5a-2971f0da491f
-example_patches = diff(dict_1, dict_2)
+# ╔═╡ 5e360fcd-9943-4a17-9672-f1fded2f7e3a
+function diff(old::T, new::T) where T
+	if old == new
+		NoChanges
+	else
+		JSONPatch[ReplacePatch([], new)]
+	end
+end
+
+# ╔═╡ 0b50f6b2-8e85-4565-9f04-f99c913b4592
+const use_triple_equals_for_arrays = Ref(true)
+
+# ╔═╡ 59e94cb2-c2f9-4f6c-9562-45e8c15931af
+function diff(old::T, new::T) where T <: AbstractArray
+	if use_triple_equals_for_arrays[] ? 
+		((old === new) || (old == new)) : 
+		(old == new)
+		NoChanges
+	else
+		JSONPatch[ReplacePatch([], new)]
+	end
+end
+
+# ╔═╡ bf869ca5-28d0-482f-9da4-d0564e2120f2
+function diff(old::String,new::String)
+	if (old === new) || (old == new)
+		NoChanges
+	else
+		JSONPatch[ReplacePatch([], new)]
+	end
+end
+
+# ╔═╡ f132f6c6-b5c1-4d73-94f0-9ef63c3388e0
+@generated function gen_direct_diff(old::T, new::T) where T
+	fields = fieldnames(old)
+	quote
+		
+	changes = []
+		$(Expr(:block, map(fields) do f
+				:(
+				for change in diff(old.$(f), new.$(f))
+					push!(changes, wrappath([$(QuoteNode(f))], change))
+				end
+				)
+			end...)
+		)
+	changes
+	end
+end
+
+# ╔═╡ 9cbaaec2-709c-4769-886c-ec92b12c18bc
+struct Deep{T} value::T end
+
+# ╔═╡ db75df12-2de1-11eb-0726-d1995cebd382
+function diff(old::Deep{T}, new::Deep{T})::Patches where T
+	changes = JSONPatch[]
+	for property in propertynames(old.value)
+		for change in diff(getproperty(old.value, property), getproperty(new.value, property))
+			push!(changes, wrappath([property], change))
+		end
+	end
+	changes
+end
 
 # ╔═╡ 59b46bfe-da74-43af-9c11-cb0bdb2c13a2
 md"""
@@ -325,9 +367,6 @@ notebook2 = Dict(
 	:y => 4,
 	:z => 5
 )
-
-# ╔═╡ dbdd1df0-2de1-11eb-152f-8d1af1ad02fe
-notebook1_to_notebook2 = diff(notebook1, notebook2)
 
 # ╔═╡ 3924953f-787a-4912-b6ee-9c9d3030f0f0
 md"""
@@ -366,9 +405,6 @@ begin
 	large_dict_2
 end;
 
-# ╔═╡ 43c36ab7-e9ac-450a-8abe-435412f2be1d
-diff(large_dict_1, large_dict_2)
-
 # ╔═╡ 1cf22fe6-4b58-4220-87a1-d7a18410b4e8
 md"""
 With `===` comparison for arrays:
@@ -398,14 +434,203 @@ begin
 	many_items_2
 end
 
-# ╔═╡ 2e91a1a2-469c-4123-a0d7-3dcc49715738
-diff(many_items_1, many_items_2)
-
 # ╔═╡ b8061c1b-dd03-4cd1-b275-90359ae2bb39
 fairly_equal(a,b) = all(x -> x in b, a) && all(y -> y in a, b)
 
-# ╔═╡ aeab3363-08ba-47c2-bd33-04a004ed72c4
-diff(many_items_1, many_items_1)
+# ╔═╡ d414a9be-2ba1-4a7e-bd2a-4a965d877188
+md"""
+## Realistic state data example
+"""
+
+# ╔═╡ aed4c7ef-5a7d-47a2-8183-75f873b685b4
+example_state = let
+	cells = [uuid1() for i in 1:400]
+	
+	Dict{String,Any}(
+        "notebook_id" => uuid1(),
+        "path" => "asdfasdfasdfasa/.asdf/.asdf./sdf.df",
+        "in_temp_dir" => true,
+        "shortpath" => "asdfasdfasdfasdf",
+        "cell_inputs" => Dict{UUID,Dict{String,Any}}(
+            id => Dict{String,Any}(
+                "cell_id" => uuid1(),
+                "code" => """
+				struct AddPatch <: JSONPatch
+	path::PatchPath
+	value::Any
+end
+				""",
+                "code_folded" => false,
+            )
+        	for id in cells
+		),
+        "cell_results" => Dict{UUID,Dict{String,Any}}(
+            id => Dict{String,Any}(
+                "cell_id" => id,
+                "queued" => false,
+                "running" => false,
+                "errored" => false,
+                "runtime" => i < 10 ? nothing : 0x90832480923,
+                "output" => Dict(                
+                    "last_run_timestamp" => 0x09834098,
+                    "persist_js_state" => true,
+                    "mime" => MIME"text/adsfasdf"(),
+                    "body" => if i < 110
+				"lkasjdflkjasdflkjasdflkjsaldkfjalskdfj_asdjkf_lkasdjf_lkajsdfl_kasjdfkjadsf"
+					elseif i < 120
+						rand(UInt8,1_000_000)
+					elseif i < 140
+						Dict{String,Any}(
+							"asdf" => 123123,
+							"asdfsfd" => false,
+							"dsfdd" => [
+								Dict{String,Any}(
+									"i" => x,
+									"as" => rand(UInt8,100_000),
+									"z" => "asdfdsfadfs",
+								)
+								for x in 1:20
+								],
+							)
+					else
+						nothing
+					end,
+                    "rootassignee" => :asdfsdf,
+                ),
+            )
+	        for (i,id) in enumerate(cells)
+		),
+        "cell_order" => cells,
+        "bonds" => Dict{String,Dict{String,Any}}(
+            "asdf$(i)" => Dict("value" => 213123)
+			for i in 1:10
+		)
+    )
+end
+
+# ╔═╡ 84508f8a-a889-468a-90dd-890b2c1b9df0
+md"""
+### Realistic state data example - with structs
+"""
+
+# ╔═╡ ca783bc5-b01c-457e-aa71-994c0f3b62cc
+md"""
+About 3x faster!
+"""
+
+# ╔═╡ e85a2142-cdf3-4e60-a1d9-f9737be1d6cc
+abstract type Diffable end
+
+# ╔═╡ 1e1dcfd6-b33c-4bcd-82cc-8f44755dc069
+struct NotebookData <: Diffable
+	notebook_id::UUID
+	path::String
+	in_temp_dir::Bool
+	shortpath::String
+	cell_inputs::Dict{UUID,Any}
+	cell_results::Dict{UUID,Any}
+	cell_order::Vector{UUID}
+	bonds::Dict{String,Any}
+end
+
+# ╔═╡ bb8a3207-1ef7-4fef-a4c0-5e4539eef657
+Base.@kwdef struct CellResultData <: Diffable
+	cell_id::UUID
+	queued::Bool
+	running::Bool
+	errored::Bool
+	runtime
+	output
+end
+
+# ╔═╡ 01e75dbd-fc66-41cd-81d6-f5d8f3314357
+Base.@kwdef struct CellInputData <: Diffable
+	cell_id::UUID
+	code::String
+	code_folded::Bool
+end
+
+# ╔═╡ bafba688-d249-43fe-a9f9-cb9adf6f61f0
+Base.@kwdef struct CellOutputData <: Diffable
+	last_run_timestamp::Integer
+	persist_js_state::Bool
+	mime::MIME
+	body::Union{String,Vector{UInt8},Dict,Nothing}
+	rootassignee::Union{Symbol,Nothing}
+end
+
+# ╔═╡ 200bea74-cd0b-4b8f-839e-a02f6f0dbd05
+typed_3 = let
+	cells = [uuid1() for i in 1:400]
+	
+	Dict{String,Any}(
+        "notebook_id" => uuid1(),
+        "path" => "asdfasdfasdfasa/.asdf/.asdf./sdf.df",
+        "in_temp_dir" => true,
+        "shortpath" => "asdfasdfasdfasdf",
+        "cell_inputs" => Dict{UUID,CellInputData}(
+            id => CellInputData(
+                cell_id = uuid1(),
+                code = """
+				struct AddPatch <: JSONPatch
+	path::PatchPath
+	value::Any
+end
+				""",
+                code_folded = false,
+            )
+        	for id in cells
+		),
+        "cell_results" => Dict{UUID,CellResultData}(
+            id => CellResultData(
+                cell_id=id,
+                queued=false,
+                running=false,
+                errored=false,
+                runtime=i < 10 ? nothing : 0x90832480923,
+                output=CellOutputData(
+                    last_run_timestamp = 0x09834098,
+                    persist_js_state = true,
+                    mime = MIME"text/adsfasdf"(),
+                    body = if i < 110
+				"lkasjdflkjasdflkjasdflkjsaldkfjalskdfj_asdjkf_lkasdjf_lkajsdfl_kasjdfkjadsf"
+					elseif i < 120
+						rand(UInt8,1_000_000)
+					elseif i < 140
+						Dict{String,Any}(
+							"asdf" => 123123,
+							"asdfsfd" => false,
+							"dsfdd" => [
+								Dict{String,Any}(
+									"i" => x,
+									"as" => rand(UInt8,100_000),
+									"z" => "asdfdsfadfs",
+								)
+								for x in 1:20
+								],
+							)
+					else
+						nothing
+					end,
+                    rootassignee = :asdfsdf,
+                ),
+            )
+	        for (i,id) in enumerate(cells)
+		),
+        "cell_order" => cells,
+        "bonds" => Dict{String,Dict{String,Any}}(
+            "asdf$(i)" => Dict("value" => 213123)
+			for i in 1:10
+		)
+    )
+end
+
+# ╔═╡ d01e14af-34f4-4285-a43d-b6d3b5207504
+md"""
+Some deleted experiments:
+- Symbols as keys make no difference
+- NamedTuples instead of Dicts does not look promising
+"""
 
 # ╔═╡ c7de406d-ccfe-41cf-8388-6bd2d7c42d64
 md"### Struct example"
@@ -416,9 +641,6 @@ struct Cell
 	code
 	folded
 end
-
-# ╔═╡ c3c675be-9178-4176-afe0-30501786b72c
-deep_diff(old::Cell, new::Cell) = diff(Deep(old), Deep(new))
 
 # ╔═╡ 02585c72-1d92-4526-98c2-1ca07aad87a3
 function direct_diff(old::Cell, new::Cell)
@@ -440,6 +662,98 @@ cell1 = Cell(1, 2, 3)
 
 # ╔═╡ 3e05200f-071a-4ebe-b685-ff980f07cde7
 cell2 = Cell(1, 2, 4)
+
+# ╔═╡ 09099a77-0511-40c3-8c5a-942b13f2a6f0
+direct_diff(cell2, cell1)
+
+# ╔═╡ c77d7c37-5a0a-4c4e-9ef0-4e2bbb1c478e
+# @benchmark direct_diff($cell2, $cell1)
+
+# ╔═╡ 2ff59c5f-c5d9-4a83-9162-e68dcc7fc67d
+# @benchmark deep_diff($cell2, $cell1)
+
+# ╔═╡ d8fb42f7-5435-4dfa-87ed-724d38887a2c
+# @benchmark gen_direct_diff($cell2, $cell1)
+
+# ╔═╡ 82cb82f8-3018-4a3b-8f4b-0da6ef737af2
+md"""
+We can generate functions like `direct_diff` automatically for new types, using `@generated`:
+"""
+
+# ╔═╡ 7b66c6c7-a7a9-4645-b37c-c7b0bbc9ada0
+function diff(old::T, new::T) where T<:Diffable
+	gen_direct_diff(old, new)
+end
+
+# ╔═╡ 7ca087b8-73ac-49ea-9c5a-2971f0da491f
+example_patches = diff(dict_1, dict_2)
+
+# ╔═╡ dbdd1df0-2de1-11eb-152f-8d1af1ad02fe
+notebook1_to_notebook2 = diff(notebook1, notebook2)
+
+# ╔═╡ 43c36ab7-e9ac-450a-8abe-435412f2be1d
+diff(large_dict_1, large_dict_2)
+
+# ╔═╡ 2e91a1a2-469c-4123-a0d7-3dcc49715738
+diff(many_items_1, many_items_2)
+
+# ╔═╡ aeab3363-08ba-47c2-bd33-04a004ed72c4
+diff(many_items_1, many_items_1)
+
+# ╔═╡ c3c675be-9178-4176-afe0-30501786b72c
+deep_diff(old::Cell, new::Cell) = diff(Deep(old), Deep(new))
+
+# ╔═╡ fe368021-2c35-47df-aa23-0824ce04a7eb
+cell1_dict = Dict{String,Any}(
+	"id" => 1,
+	"code" => 2,
+	"folded" => 3,
+)
+
+# ╔═╡ 555e10f6-6cba-477f-a082-3fc69f6a5238
+cell2_dict = Dict{String,Any}(
+	"id" => 1,
+	"code" => 2,
+	"folded" => 4,
+)
+
+# ╔═╡ 9fa163a4-f799-40d3-9820-7d6fdf85b5a6
+md"""
+## Deep copy
+
+Calling `deepcopy` on the state object will also copy UInt8 arrays, which is bad. We define a `deep_enough_copy` that only deepcopies Dicts:
+"""
+
+# ╔═╡ d9c320a2-c7e0-4798-a254-aef30a8ef546
+"Like `deepcopy`, but anything onther than `Dict` gets a shallow (reference) copy."
+function deep_enough_copy(d::Dict{A,B}) where {A, B}
+    Dict{A,B}(
+        k => deep_enough_copy(v)
+        for (k, v) in d
+    )
+end
+
+# ╔═╡ b8751143-bfb0-47b3-9672-4f7995c95cc6
+deep_enough_copy(x) = x
+
+# ╔═╡ bded54af-2844-401b-b7cb-583104a3a905
+@generated function deep_enough_copy(old::T) where T <: Diffable
+	fields = fieldnames(old)
+	quote
+		T($((
+					:(old.$(f)) for f in fields
+			)...))
+	end
+end
+
+# ╔═╡ 4759bf67-45d1-4df7-b08b-72e7822a52f4
+asdf = CellInputData(uuid1(), "asdf", true)
+
+# ╔═╡ db62aa6a-e0d1-47cf-a428-965bd2dc11ee
+deep_enough_copy(asdf) === asdf
+
+# ╔═╡ 93073f11-d647-40a7-9a4f-18d6035f0b53
+@which Base.deepcopy_internal(cell1, IdDict())
 
 # ╔═╡ dd312598-2de1-11eb-144c-f92ed6484f5d
 md"## Update"
@@ -1016,21 +1330,36 @@ end
 # ╔═╡ 67a1ae27-f7df-4f84-8809-1cc6a9bcd1ce
 @skip_as_script @track for _ in 1:1000 diff(many_items_1, many_items_2) end
 
-# ╔═╡ fa959806-3264-4dd5-9f94-ba369697689b
-@skip_as_script @track for _ in 1:1000 direct_diff(cell2, cell1) end
+# ╔═╡ d14d4a13-ac13-4f02-b663-546ca7c6d2b3
+@skip_as_script @track for _ in 1:100 diff(example_state, example_state) end
+
+# ╔═╡ 94813074-37e5-4566-a757-c36a15535491
+@skip_as_script @track for _ in 1:100 diff(typed_3, typed_3) end
 
 # ╔═╡ a9088341-647c-4fe1-ab85-d7da049513ae
 @skip_as_script @track for _ in 1:1000 diff(Deep(cell1), Deep(cell2)) end
+
+# ╔═╡ fa959806-3264-4dd5-9f94-ba369697689b
+@skip_as_script @track for _ in 1:1000 direct_diff(cell2, cell1) end
+
+# ╔═╡ 37144973-1fec-46d7-b1c4-0fa1d240368f
+@skip_as_script @track for _ in 1:1000 gen_direct_diff(cell2, cell1) end
+
+# ╔═╡ 7a86d7c3-eeb2-4e9b-9e02-eb64e7ed1a52
+@skip_as_script @track for _ in 1:1000 diff(cell2_dict, cell1_dict) end
 
 # ╔═╡ 1a26eed8-670c-43bf-9726-2db84b1afdab
 @skip_as_script @track sleep(0.1)
 
 # ╔═╡ Cell order:
+# ╠═b2f4c4ac-c3ee-4070-ba1e-c5161b961d83
 # ╟─d948dc6e-2de1-11eb-19e7-cb3bb66353b6
 # ╟─1a6e1853-6db1-4074-bce0-5f274351cece
 # ╟─49fc1f97-3b8f-4297-94e5-2e24c001d35c
 # ╠═d8e73b90-24c5-4e50-830b-b1dbe6224c8e
+# ╠═e6710923-63ec-4b57-aa96-f24c50266a71
 # ╠═19646596-b35b-44fa-bfcf-891f9ffb748c
+# ╠═750b717f-10c7-4b72-affb-2725c68696ad
 # ╠═7ca087b8-73ac-49ea-9c5a-2971f0da491f
 # ╟─9d2c07d9-16a9-4b9f-a375-2adb6e5b907a
 # ╠═e65d483a-4c13-49ba-bff1-1d54de78f534
@@ -1072,16 +1401,20 @@ end
 # ╟─84c87031-7733-4d1f-aa90-f8ab71506251
 # ╟─8f265a33-3a2d-4508-9477-ca62e8ce3c12
 # ╟─daf9ec12-2de1-11eb-3a8d-59d9c2753134
-# ╠═0b50f6b2-8e85-4565-9f04-f99c913b4592
-# ╠═59e94cb2-c2f9-4f6c-9562-45e8c15931af
-# ╠═5e360fcd-9943-4a17-9672-f1fded2f7e3a
-# ╠═9cbaaec2-709c-4769-886c-ec92b12c18bc
-# ╠═db75df12-2de1-11eb-0726-d1995cebd382
+# ╠═267d73ed-67d5-44c4-a9b4-47f29abad0be
+# ╠═3f2affcb-a93e-4eb4-8732-705f02d0ea5d
 # ╠═dbc7f97a-2de1-11eb-362f-055a734d1a9e
 # ╠═67ade214-2de3-11eb-291d-135a397d629b
 # ╠═b8c58aa4-c24d-48a3-b2a8-7c01d50a3349
 # ╠═5ab390f9-3b0c-4978-9e21-2aaa61db2ce4
 # ╠═09f53db0-21ae-490b-86b5-414eba403d57
+# ╠═5e360fcd-9943-4a17-9672-f1fded2f7e3a
+# ╠═0b50f6b2-8e85-4565-9f04-f99c913b4592
+# ╠═59e94cb2-c2f9-4f6c-9562-45e8c15931af
+# ╠═bf869ca5-28d0-482f-9da4-d0564e2120f2
+# ╠═f132f6c6-b5c1-4d73-94f0-9ef63c3388e0
+# ╠═9cbaaec2-709c-4769-886c-ec92b12c18bc
+# ╠═db75df12-2de1-11eb-0726-d1995cebd382
 # ╟─59b46bfe-da74-43af-9c11-cb0bdb2c13a2
 # ╟─200516da-8cfb-42fe-a6b9-cb4730168923
 # ╟─76326e6c-b95a-4b2d-a78c-e283e5fadbe2
@@ -1111,16 +1444,46 @@ end
 # ╠═b8061c1b-dd03-4cd1-b275-90359ae2bb39
 # ╠═aeab3363-08ba-47c2-bd33-04a004ed72c4
 # ╟─62de3e79-4b4e-41df-8020-769c3c255c3e
-# ╟─c287009f-e864-45d2-a4d0-a525c988a6e0
+# ╠═c287009f-e864-45d2-a4d0-a525c988a6e0
 # ╟─67a1ae27-f7df-4f84-8809-1cc6a9bcd1ce
+# ╟─d414a9be-2ba1-4a7e-bd2a-4a965d877188
+# ╟─aed4c7ef-5a7d-47a2-8183-75f873b685b4
+# ╠═d14d4a13-ac13-4f02-b663-546ca7c6d2b3
+# ╟─84508f8a-a889-468a-90dd-890b2c1b9df0
+# ╟─200bea74-cd0b-4b8f-839e-a02f6f0dbd05
+# ╠═94813074-37e5-4566-a757-c36a15535491
+# ╟─ca783bc5-b01c-457e-aa71-994c0f3b62cc
+# ╠═e85a2142-cdf3-4e60-a1d9-f9737be1d6cc
+# ╠═1e1dcfd6-b33c-4bcd-82cc-8f44755dc069
+# ╠═bb8a3207-1ef7-4fef-a4c0-5e4539eef657
+# ╠═01e75dbd-fc66-41cd-81d6-f5d8f3314357
+# ╠═bafba688-d249-43fe-a9f9-cb9adf6f61f0
+# ╟─d01e14af-34f4-4285-a43d-b6d3b5207504
 # ╟─c7de406d-ccfe-41cf-8388-6bd2d7c42d64
 # ╠═b9cc11ae-394b-44b9-bfbe-541d7720ead0
 # ╠═c3c675be-9178-4176-afe0-30501786b72c
 # ╠═02585c72-1d92-4526-98c2-1ca07aad87a3
 # ╟─2d084dd1-240d-4443-a8a2-82ae6e0b8900
 # ╟─3e05200f-071a-4ebe-b685-ff980f07cde7
-# ╠═fa959806-3264-4dd5-9f94-ba369697689b
+# ╠═09099a77-0511-40c3-8c5a-942b13f2a6f0
 # ╠═a9088341-647c-4fe1-ab85-d7da049513ae
+# ╠═fa959806-3264-4dd5-9f94-ba369697689b
+# ╠═37144973-1fec-46d7-b1c4-0fa1d240368f
+# ╠═c77d7c37-5a0a-4c4e-9ef0-4e2bbb1c478e
+# ╠═2ff59c5f-c5d9-4a83-9162-e68dcc7fc67d
+# ╠═d8fb42f7-5435-4dfa-87ed-724d38887a2c
+# ╟─82cb82f8-3018-4a3b-8f4b-0da6ef737af2
+# ╠═7b66c6c7-a7a9-4645-b37c-c7b0bbc9ada0
+# ╠═fe368021-2c35-47df-aa23-0824ce04a7eb
+# ╠═555e10f6-6cba-477f-a082-3fc69f6a5238
+# ╠═7a86d7c3-eeb2-4e9b-9e02-eb64e7ed1a52
+# ╟─9fa163a4-f799-40d3-9820-7d6fdf85b5a6
+# ╠═d9c320a2-c7e0-4798-a254-aef30a8ef546
+# ╠═b8751143-bfb0-47b3-9672-4f7995c95cc6
+# ╠═bded54af-2844-401b-b7cb-583104a3a905
+# ╠═4759bf67-45d1-4df7-b08b-72e7822a52f4
+# ╠═db62aa6a-e0d1-47cf-a428-965bd2dc11ee
+# ╠═93073f11-d647-40a7-9a4f-18d6035f0b53
 # ╟─dd312598-2de1-11eb-144c-f92ed6484f5d
 # ╠═d2af2a4b-8982-4e43-9fd7-0ecfdfb70511
 # ╠═640663fc-06ba-491e-bd85-299514237651
